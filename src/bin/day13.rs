@@ -3,10 +3,7 @@ use std::error::Error;
 use std::fs;
 
 
-fn part1(locations: &HashSet<[usize; 2]>, fold: &(char, usize)) {
-
-    // println!("Location count: {:?}", mut_loc.len());
-
+fn do_fold(locations: &HashSet<[usize; 2]>, fold: &(char, usize)) -> HashSet<[usize; 2]> {
     let mut new_locations = HashSet::new();
     for loc in locations.iter() {
         if fold.0 == 'x' {
@@ -24,8 +21,15 @@ fn part1(locations: &HashSet<[usize; 2]>, fold: &(char, usize)) {
         }
     }
 
+    new_locations
+}
+
+
+fn part1(locations: &HashSet<[usize; 2]>, fold: &(char, usize)) {
+    let new_locations = do_fold(locations, fold);
     println!("Locations: {:?}", new_locations.len());
 }
+
 
 fn print_dots(locations: &HashSet<[usize; 2]>) {
     let max_x = locations.iter().map(|loc| loc[0]).max().unwrap();
@@ -45,30 +49,9 @@ fn print_dots(locations: &HashSet<[usize; 2]>) {
 
 
 fn part2(locations_in: &HashSet<[usize; 2]>, folds: &Vec<(char, usize)>) {
-
-    // println!("Location count: {:?}", mut_loc.len());
-
     let mut locations = locations_in.clone();
-
     for fold in folds {
-        let mut new_locations = HashSet::new();
-        for loc in locations.iter() {
-            if fold.0 == 'x' {
-                if loc[0] > fold.1 {
-                    new_locations.insert([2 * fold.1 - loc[0], loc[1]]);
-                } else {
-                    new_locations.insert(*loc);
-                }
-            } else {
-                if loc[1] > fold.1 {
-                    new_locations.insert([loc[0], 2 * fold.1 - loc[1]]);
-                } else {
-                    new_locations.insert(*loc);
-                }
-            }
-        }
-
-        locations = new_locations;
+        locations = do_fold(&locations, fold);
     }
 
     print_dots(&locations);
