@@ -23,8 +23,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut velocities = HashSet::new();
     for k in 0..210 {
         let mut y_vel = Vec::new();
-        //for yp in -10..-4 {
-        for yp in -102..-77 {
+        //for yp in -10..=-5 {
+        for yp in -102..=-78 {
             let yv0 = yp as f64 / k as f64 + (k as f64 - 1.0) / 2.0;
 
             if (yv0 - yv0.round()).abs() < 1e-6 {
@@ -33,8 +33,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
 
         let mut x_vel = Vec::new();
-        //for xp in 20..31 {
-        for xp in 135..156 {
+        //for xp in 20..=30 {
+        for xp in 135..=155 {
             // When xv > k (i.e. min(xv, k) == k)
             let xv01 = xp as f64 / k as f64 + (k as f64 - 1.0) / 2.0;
             // When xv < k (i.e. min(xv, k) == xv)
