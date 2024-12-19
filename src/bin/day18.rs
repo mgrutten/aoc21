@@ -1,198 +1,154 @@
-use std::cell::RefCell;
+use std::cmp::max;
 use std::error::Error;
-use std::fmt;
-use std::rc::{Rc, Weak};
+use std::fs;
 
-
-#[derive(Debug)]
-enum ValueOrPair {
-    Value(u8),
-    Pair([Rc<RefCell<Node>>; 2]),
-}
-
-impl fmt::Display for ValueOrPair {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            ValueOrPair::Value(val) => write!(f, "{}", val),
-            ValueOrPair::Pair(pair) => write!(f, "[{},{}]", pair[0].borrow(), pair[1].borrow()),
-        }
-    }
-}
-
-impl ValueOrPair {
-    fn is_pair_of_values(&self) -> bool {
-        matches!(self, ValueOrPair::Pair([left, right])
-                 if matches!(left.borrow().value, ValueOrPair::Value(_)) &&
-                    matches!(right.borrow().value, ValueOrPair::Value(_)))
-    }
-}
-
-
-#[derive(Debug)]
-struct Node {
-    value: ValueOrPair,
-    parent: Option<Weak<RefCell<Node>>>,
-}
-
-impl fmt::Display for Node {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.value)
-    }
-}
-
-impl Node {
-    fn new_value(value: u8) -> Rc<RefCell<Node>> {
-        Rc::new(RefCell::new(Node {
-            value: ValueOrPair::Value(value),
-            parent: None,
-        }))
-    }
-
-    fn new_pair(left: Rc<RefCell<Node>>,
-                right: Rc<RefCell<Node>>) -> Rc<RefCell<Node>> {
-        Rc::new(RefCell::new(Node {
-            value: ValueOrPair::Pair([left, right]),
-            parent: None,
-        }))
-    }
-
-    fn set_parent(&mut self, parent: &Rc<RefCell<Node>>) {
-        self.parent = Some(Rc::downgrade(parent));
-    }
-
-    /*
-    fn set_left(parent: &Rc<RefCell<Node>>, child: Rc<RefCell<Node>>) {
-        child.borrow_mut().parent = Some(Rc::downgrade(parent));
-        parent.borrow_mut().left = Some(child);
-    }
-
-    fn set_right(parent: &Rc<RefCell<Node>>, child: Rc<RefCell<Node>>) {
-        child.borrow_mut().parent = Some(Rc::downgrade(parent));
-        parent.borrow_mut().right = Some(child);
-    }
-
-     */
-}
-
-fn parse_number(num: &[char], idx: &mut usize) -> Rc<RefCell<Node>> {
-    if num[*idx].is_digit(10) {
-        let value = num[*idx].to_digit(10).unwrap() as u8;
-        *idx += 1;
-
-        Node::new_value(value)
-    } else {
-        assert_eq!(num[*idx], '[');
-        *idx += 1;
-        let left = parse_number(num, idx);
-        assert_eq!(num[*idx], ',');
-        *idx += 1;
-        let right = parse_number(num, idx);
-        assert_eq!(num[*idx], ']');
-        *idx += 1;
-
-        let node = Node::new_pair(left.clone(), right.clone());
-        left.borrow_mut().set_parent(&node);
-        right.borrow_mut().set_parent(&node);
-
-        node
-    }
-}
-
-
-fn find_explode(node: &Rc<RefCell<Node>>, depth: usize) -> Option<Rc<RefCell<Node>>> {
-    if depth > 4 {
-        let node_borrow = node.borrow();
-        if let ValueOrPair::Pair(_) = &node_borrow.value {
-            if node_borrow.value.is_pair_of_values() {
-                return Some(node.clone());
-            }
+fn parse_number(num: &[char]) -> Vec<[u64; 2]> {
+    let mut depth = 0;
+    let mut vals = Vec::new();
+    for idx in 0..num.len() {
+        match num[idx] {
+            '[' => depth += 1,
+            ']' => depth -= 1,
+            ',' => {}
+            '0'..='9' => vals.push([num[idx].to_digit(10).unwrap() as u64, depth - 1]),
+            _ => unreachable!(),
         }
     }
 
-    let node_borrow = node.borrow();
-    if let ValueOrPair::Pair([left, right]) = &node_borrow.value {
-        if let Some(found) = find_explode(left, depth + 1) {
-            return Some(found);
+    vals
+}
+
+fn explode(num: &Vec<[u64; 2]>) -> Option<Vec<[u64; 2]>> {
+    for i in 0..num.len() {
+        let depth = num[i][1];
+        if depth < 4 {
+            continue;
         }
-        if let Some(found) = find_explode(right, depth + 1) {
-            return Some(found);
+
+        let mut num_mut = num.clone();
+        if i > 0 {
+            num_mut[i - 1][0] += num_mut[i][0];
         }
+
+        if i + 2 < num_mut.len() {
+            num_mut[i + 2][0] += num_mut[i + 1][0];
+        }
+
+        num_mut[i][0] = 0;
+        num_mut[i][1] = depth - 1;
+        num_mut.remove(i + 1);
+
+        return Some(num_mut);
     }
 
     None
 }
 
+fn split(num: &Vec<[u64; 2]>) -> Option<Vec<[u64; 2]>> {
+    for i in 0..num.len() {
+        let val = num[i][0];
+        if val < 10 {
+            continue;
+        }
 
-fn find_rightmost(node: &Rc<RefCell<Node>>) -> Option<Rc<RefCell<Node>>> {
-    match &node.borrow().value {
-        ValueOrPair::Value(_) => Some(node.clone()),
-        ValueOrPair::Pair([_, right]) => find_rightmost(&right),
+        let (left, right) = if val % 2 == 0 {
+            (val / 2, val / 2)
+        } else {
+            (val / 2, val / 2 + 1)
+        };
+
+        let mut num_mut = num.clone();
+        num_mut[i][0] = left;
+        num_mut[i][1] += 1;
+        num_mut.insert(i + 1, [right, num_mut[i][1]]);
+
+        return Some(num_mut);
     }
+
+    None
 }
 
-fn find_left(node: &Rc<RefCell<Node>>) -> Option<Rc<RefCell<Node>>> {
-    let mut left_node = None;
-
-    let mut parent = Some(node.clone());
+fn reduce(num: &Vec<[u64; 2]>) -> Vec<[u64; 2]> {
+    let mut num_mut = num.clone();
     loop {
-        if let Some(p_node) = parent.clone() {
-            if let Some(ref p_weak) = p_node.borrow().parent {
-                parent = p_weak.upgrade();
-                if let Some(ref p) = parent {
-                    if let ValueOrPair::Pair([left, _right]) = &p.borrow().value {
-                        println!("left {:?}", left);
-                        println!("node {:?}", node);
-                        if !Rc::ptr_eq(left, node) {
-                            println!("possible left");
-                            left_node = Some(left.clone());
-                        }
-                    }
-                }
+        let mut found = false;
+        if let Some(result) = explode(&num_mut) {
+            num_mut = result;
+            found = true;
+        }
+        if !found {
+            if let Some(result) = split(&num_mut) {
+                num_mut = result;
+                found = true;
             }
         }
-        if left_node.is_some() {
-            break;
-        }
-        if parent.is_none() {
+
+        if !found {
             break;
         }
     }
 
-    if let Some(left) = left_node {
-        return find_rightmost(&left);
-    }
+    num_mut
+}
 
-    None
+fn add(left: &Vec<[u64; 2]>, right: &Vec<[u64; 2]>) -> Vec<[u64; 2]> {
+    let mut num = left.clone();
+
+    num.extend(right);
+    num.iter_mut().for_each(|[_, depth]| *depth += 1);
+
+    reduce(&num)
 }
 
 
-fn reduce(num: &Rc<RefCell<Node>>) {
-    //let mut mut_num = num.clone();
-
-    let pair = find_explode(&num, 1);
-    if pair.is_some() {
-        let node = pair.unwrap();
-        println!("{}", node.clone().borrow());
-        let left = find_left(&node);
-        if let Some(left) = left {
-            println!("{}", left.clone().borrow());
+fn magnitude(num: &Vec<[u64; 2]>) -> u64 {
+    let mut mut_num = num.clone();
+    while mut_num.len() > 1 {
+        for i in 0..mut_num.len() - 1 {
+            if mut_num[i][1] == mut_num[i + 1][1] {
+                mut_num[i][0] = 3 * mut_num[i][0] + 2 * mut_num[i + 1][0];
+                if mut_num[i][1] > 0 {
+                    mut_num[i][1] -= 1;
+                }
+                mut_num.remove(i + 1);
+                break;
+            }
         }
     }
+
+    mut_num[0][0]
+}
+
+fn part1(sailfish: &Vec<Vec<[u64; 2]>>) {
+    let sum = sailfish.iter().skip(1)
+        .fold(sailfish[0].clone(), |acc, num| add(&acc, num));
+    
+    println!("Part 1: {}", magnitude(&sum));
+}
+
+
+fn part2(sailfish: &Vec<Vec<[u64; 2]>>) {
+    let mut max_magnitude = 0;
+    for num1 in sailfish {
+        for num2 in sailfish {
+            max_magnitude = max(max_magnitude, magnitude(&add(num1, num2)));
+        }
+    }
+
+    println!("Part 2: {}", max_magnitude);
 }
 
 
 fn main() -> Result<(), Box<dyn Error>> {
     // Read in example
-    //let file_str: String = fs::read_to_string("data/day15/day15.txt")?;
+    let file_str: String = fs::read_to_string("data/day18/day18.txt")?;
 
-    // let num = "[[3,[2,[1,[7,3]]]],[6,[5,[4,[3,2]]]]]".chars().collect::<Vec<_>>();
-    let num = "[[[[[9,8],1],2],3],4]".chars().collect::<Vec<_>>();
-    let mut idx = 0;
-    let sailfish = parse_number(&num, &mut idx);
+    let sailfish = file_str.lines()
+        .map(|line| parse_number(&line.chars().collect::<Vec<_>>()))
+        .collect::<Vec<Vec<_>>>();
 
-    println!("{}", sailfish.borrow());
-
-    reduce(&sailfish);
+    part1(&sailfish);
+    part2(&sailfish);
 
     Ok(())
 }
